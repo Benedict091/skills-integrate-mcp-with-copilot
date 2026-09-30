@@ -3,15 +3,33 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const signupContainer = document.getElementById("signup-container");
+  const loginButton = document.getElementById("teacher-login-button");
+  const logoutButton = document.getElementById("teacher-logout-button");
+  const loginDialog = document.getElementById("teacher-login-dialog");
+  const loginForm = document.getElementById("teacher-login-form");
+  const loginMessage = document.getElementById("teacher-login-message");
+  let isTeacherAuthenticated = false;
+
+  async function updateAuthUI() {
+    const response = await fetch("/auth/session");
+    const session = await response.json();
+    isTeacherAuthenticated = response.ok && session.authenticated;
+    signupContainer.hidden = !isTeacherAuthenticated;
+    loginButton.hidden = isTeacherAuthenticated;
+    logoutButton.hidden = !isTeacherAuthenticated;
+  }
 
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
+      await updateAuthUI();
       const response = await fetch("/activities");
       const activities = await response.json();
 
       // Clear loading message
       activitiesList.innerHTML = "";
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -29,8 +47,11 @@ document.addEventListener("DOMContentLoaded", () => {
               <ul class="participants-list">
                 ${details.participants
                   .map(
-                    (email) =>
-                      `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
+                    (email) => `<li><span class="participant-email">${email}</span>${
+                      isTeacherAuthenticated
+                        ? `<button class="delete-btn" data-activity="${name}" data-email="${email}" aria-label="Unregister ${email}">❌</button>`
+                        : ""
+                    }</li>`
                   )
                   .join("")}
               </ul>
@@ -66,6 +87,46 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("Error fetching activities:", error);
     }
   }
+
+  loginButton.addEventListener("click", () => {
+    loginMessage.textContent = "";
+    loginDialog.showModal();
+  });
+
+  document.getElementById("teacher-login-cancel").addEventListener("click", () => {
+    loginDialog.close();
+  });
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(loginForm);
+
+    try {
+      const response = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: formData.get("username"),
+          password: formData.get("password"),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.detail || "Unable to log in");
+      }
+
+      loginForm.reset();
+      loginDialog.close();
+      await fetchActivities();
+    } catch (error) {
+      loginMessage.textContent = error.message;
+    }
+  });
+
+  logoutButton.addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST" });
+    await fetchActivities();
+  });
 
   // Handle unregister functionality
   async function handleUnregister(event) {
